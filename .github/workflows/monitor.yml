@@ -1,0 +1,62 @@
+name: ReelPilot monitor
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reelpilot-monitor
+  cancel-in-progress: true
+
+jobs:
+  monitor:
+    # Public repositories get standard GitHub-hosted runner usage at no charge.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SOURCE_PROFILE_URL: https://www.instagram.com/aoonoww/
+      CHECK_INTERVAL_MINUTES: "30"
+      AUTO_PUBLISH: "true"
+      DATABASE_PATH: reelpilot.db
+      META_GRAPH_VERSION: v27.0
+      OPENAI_MODEL: gpt-4.1-mini
+      SOURCE_IG_USER_ID: ${{ secrets.SOURCE_IG_USER_ID }}
+      SOURCE_ACCESS_TOKEN: ${{ secrets.SOURCE_ACCESS_TOKEN }}
+      DEST_IG_USER_ID: ${{ secrets.DEST_IG_USER_ID }}
+      DEST_ACCESS_TOKEN: ${{ secrets.DEST_ACCESS_TOKEN }}
+      # Leave OPENAI_API_KEY unset for zero-cost caption passthrough.
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Restore duplicate-detection database
+        uses: actions/cache/restore@v4
+        with:
+          path: reelpilot.db
+          key: reelpilot-state-${{ github.run_id }}
+          restore-keys: |
+            reelpilot-state-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check source account and publish new Reels
+        run: python run_once.py
+
+      - name: Save duplicate-detection database
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: reelpilot.db
+          key: reelpilot-state-${{ github.run_id }}
