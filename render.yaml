@@ -15,7 +15,7 @@ services:
       - key: SOURCE_PROFILE_URL
         value: "https://www.instagram.com/aoonoww/"
       - key: META_GRAPH_VERSION
-        value: "v23.0"
+        value: "v27.0"
       - key: OPENAI_MODEL
         value: "gpt-4.1-mini"
       - key: DATABASE_PATH
