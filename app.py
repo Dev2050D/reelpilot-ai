@@ -13,7 +13,7 @@ logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 log = logging.getLogger("reelpilot")
 
 APP_NAME = "ReelPilot AI"
-GRAPH_VERSION = os.getenv("META_GRAPH_VERSION", "v23.0")
+GRAPH_VERSION = os.getenv("META_GRAPH_VERSION", "v27.0")
 GRAPH = f"https://graph.facebook.com/{GRAPH_VERSION}"
 DB_PATH = os.getenv("DATABASE_PATH", "reelpilot.db")
 SOURCE_IG_USER_ID = os.getenv("SOURCE_IG_USER_ID", "")
@@ -133,9 +133,10 @@ def check_source():
                 continue
             with closing(db()) as con:
                 exists = con.execute(
-                    "SELECT 1 FROM processed WHERE source_media_id=?", (media_id,)
+                    "SELECT status FROM processed WHERE source_media_id=?", (media_id,)
                 ).fetchone()
-            if exists:
+            # Retry prior failures; skip content already published or pending review.
+            if exists and exists["status"] in ("published", "pending"):
                 continue
             media_url = item.get("media_url")
             if not media_url:
@@ -150,9 +151,13 @@ def check_source():
                     status = "published"
                 with closing(db()) as con:
                     con.execute(
-                        """INSERT OR IGNORE INTO processed
+                        """INSERT INTO processed
                         (source_media_id, permalink, caption, status, destination_media_id, error, created_at)
-                        VALUES (?, ?, ?, ?, ?, NULL, ?)""",
+                        VALUES (?, ?, ?, ?, ?, NULL, ?)
+                        ON CONFLICT(source_media_id) DO UPDATE SET
+                          permalink=excluded.permalink, caption=excluded.caption,
+                          status=excluded.status, destination_media_id=excluded.destination_media_id,
+                          error=NULL, created_at=excluded.created_at""",
                         (media_id, item.get("permalink"), caption, status, dest_id,
                          datetime.now(timezone.utc).isoformat())
                     )
@@ -162,9 +167,12 @@ def check_source():
                 log.exception("Failed to publish source Reel %s", media_id)
                 with closing(db()) as con:
                     con.execute(
-                        """INSERT OR IGNORE INTO processed
+                        """INSERT INTO processed
                         (source_media_id, permalink, caption, status, error, created_at)
-                        VALUES (?, ?, ?, 'failed', ?, ?)""",
+                        VALUES (?, ?, ?, 'failed', ?, ?)
+                        ON CONFLICT(source_media_id) DO UPDATE SET
+                          permalink=excluded.permalink, caption=excluded.caption,
+                          status='failed', error=excluded.error, created_at=excluded.created_at""",
                         (media_id, item.get("permalink"), caption, str(exc)[:1000],
                          datetime.now(timezone.utc).isoformat())
                     )
